@@ -1,0 +1,394 @@
+{% extends 'base.html' %}
+
+{% block title %}控制面板 - VPS地域限速管理器{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 基础配置 -->
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <h5 class="mb-0"><i class="bi bi-gear me-2"></i>基础配置</h5>
+        </div>
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-auto" style="min-width:220px;max-width:260px">
+                    <label class="form-label">公网A IP <span class="text-muted">(地域限速)</span></label>
+                    <input type="text" class="form-control" id="public_ip_a" value="{{ config.public_ip_a }}" placeholder="255.255.255.255">
+                </div>
+                <div class="col-auto" style="min-width:220px;max-width:260px">
+                    <label class="form-label">公网B IP <span class="text-muted">(完全放行)</span></label>
+                    <input type="text" class="form-control" id="public_ip_b" value="{{ config.public_ip_b }}" placeholder="255.255.255.255">
+                </div>
+                <div class="col">
+                    <label class="form-label">预留开放端口 <span class="text-muted">(逗号分隔)</span></label>
+                    <input type="text" class="form-control" id="reserved_ports" value="{{ config.reserved_ports }}" placeholder="80,8080,443">
+                </div>
+            </div>
+            <div class="form-text mt-2">
+                预留端口（如80、443等）可设定，公网A/B都完全放行，无地域限制。SSH端口(22)和Web管理端口(9999)默认永久放行，不受任何限制。
+            </div>
+        </div>
+    </div>
+
+    <!-- 地域限速规则 -->
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>地域限速规则 (公网A非预留端口)</h5>
+        </div>
+        <div class="card-body py-3">
+            <div class="row g-3 rule-row">
+                <div class="col">
+                    <div class="rule-card">
+                        <h6 class="rule-title"><i class="bi bi-geo-alt me-1"></i>地域选择</h6>
+                        <label class="form-label small">选择放行的省份</label>
+                        <select class="form-select" id="allowed_region_code">
+                            {% for code, name in region_codes.items() %}
+                            <option value="{{ code }}" {% if config.allowed_region_code == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="rule-card">
+                        <h6 class="rule-title"><i class="bi bi-toggle-on me-1"></i>地域管理</h6>
+                        <select class="form-select mode-select" id="allowed_region_mode" data-target="allowed_kbps">
+                            <option value="allow" {% if config.allowed_region_mode == 'allow' %}selected{% endif %}>完全放行</option>
+                            <option value="block" {% if config.allowed_region_mode == 'block' %}selected{% endif %}>拒绝访问</option>
+                            <option value="limit" {% if config.allowed_region_mode == 'limit' %}selected{% endif %}>限速KB/S</option>
+                        </select>
+                        <div class="speed-display mt-2" id="allowed_kbps_wrap"></div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="rule-card">
+                        <h6 class="rule-title"><i class="bi bi-geo me-1"></i>国内其它</h6>
+                        <select class="form-select mode-select" id="other_cn_mode" data-target="other_kbps">
+                            <option value="allow" {% if config.other_cn_mode == 'allow' %}selected{% endif %}>完全放行</option>
+                            <option value="block" {% if config.other_cn_mode == 'block' %}selected{% endif %}>拒绝访问</option>
+                            <option value="limit" {% if config.other_cn_mode == 'limit' %}selected{% endif %}>限速KB/S</option>
+                        </select>
+                        <div class="speed-display mt-2" id="other_kbps_wrap"></div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="rule-card">
+                        <h6 class="rule-title"><i class="bi bi-globe me-1"></i>境外管理</h6>
+                        <select class="form-select mode-select" id="foreign_mode" data-target="foreign_kbps">
+                            <option value="allow" {% if config.foreign_mode == 'allow' %}selected{% endif %}>完全放行</option>
+                            <option value="block" {% if config.foreign_mode == 'block' %}selected{% endif %}>拒绝访问</option>
+                            <option value="limit" {% if config.foreign_mode == 'limit' %}selected{% endif %}>限速KB/S</option>
+                        </select>
+                        <div class="speed-display mt-2" id="foreign_kbps_wrap"></div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="rule-card">
+                        <h6 class="rule-title"><i class="bi bi-lightning me-1"></i>突发流量</h6>
+                        <label class="form-label small">包数建议100~500</label>
+                        <input type="number" class="form-control" id="burst_packets" value="{{ config.burst_packets }}" min="1" max="10000">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IP数据 + 操作控制 并排 -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-8">
+            <div class="card h-100 mb-0">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-database me-2"></i>IP地址数据 (ipset)</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshIpdata()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>刷新
+                    </button>
+                </div>
+                <div class="card-body py-3">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="rule-card">
+                                <h6 class="rule-title"><i class="bi bi-globe-asia-australia me-1"></i>全中国IP段 <span class="text-muted">(cn_ips)</span></h6>
+                                <div class="ipdata-item" id="cn_ipdata_info"><span class="text-muted">加载中...</span></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="rule-card">
+                                <h6 class="rule-title"><i class="bi bi-geo-alt me-1"></i><span id="allowed_region_title">放行地域IP段</span> <span class="text-muted">(allowed_ips)</span></h6>
+                                <div class="ipdata-item" id="gd_ipdata_info"><span class="text-muted">加载中...</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-success btn-sm" onclick="updateIpdata()">
+                            <i class="bi bi-cloud-download me-1"></i>更新IP数据
+                        </button>
+                        <span class="text-muted small ms-2">数据源: 纯真数据库 (metowolf/iplist)，建议每月更新一次</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 mb-0">
+                <div class="card-header py-2">
+                    <h5 class="mb-0"><i class="bi bi-play-circle me-2"></i>操作控制</h5>
+                </div>
+                <div class="card-body py-3">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary" onclick="previewRules()">
+                            <i class="bi bi-eye me-1"></i>预览规则
+                        </button>
+                        <button class="btn btn-primary" onclick="applyRules()">
+                            <i class="bi bi-check-circle me-1"></i>应用规则
+                        </button>
+                        <button class="btn btn-outline-success" onclick="backupRules()">
+                            <i class="bi bi-download me-1"></i>备份规则
+                        </button>
+                        <button class="btn btn-outline-warning" onclick="showRestoreModal()">
+                            <i class="bi bi-upload me-1"></i>恢复备份
+                        </button>
+                        <button class="btn btn-outline-info" onclick="refreshStatus()">
+                            <i class="bi bi-arrow-clockwise me-1"></i>刷新状态
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 执行结果 -->
+    <div class="card mb-3" id="resultCard" style="display:none">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-terminal me-2"></i>执行结果</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('resultCard').style.display='none'">关闭</button>
+        </div>
+        <div class="card-body">
+            <pre class="mb-0" id="resultOutput"></pre>
+        </div>
+    </div>
+
+    <!-- 状态 -->
+    <div class="card" id="statusCard" style="display:none">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>当前iptables规则</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('statusCard').style.display='none'">关闭</button>
+        </div>
+        <div class="card-body">
+            <div id="ipsetState" class="mb-3"></div>
+            <pre class="mb-0" id="statusOutput"></pre>
+        </div>
+    </div>
+
+    <!-- 恢复备份弹窗 -->
+    <div class="modal fade" id="restoreModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">恢复备份</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-sm table-hover" id="backupTable">
+                        <thead><tr><th width="30"></th><th>名称</th><th>大小</th><th>时间</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-sm btn-warning" onclick="restoreBackup()">恢复选中</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const config = {{ config | tojson }};
+const regionCodes = {{ region_codes | tojson }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    window._speedVals = {
+        allowed_kbps: {{ config.allowed_region_limit_kbps }},
+        other_kbps: {{ config.other_cn_limit_kbps }},
+        foreign_kbps: {{ config.foreign_limit_kbps }}
+    };
+    document.querySelectorAll('.mode-select').forEach(sel => {
+        sel.addEventListener('change', updateSpeedDisplay);
+        updateSpeedDisplay.call(sel);
+    });
+    updateRegionTitle();
+    document.getElementById('allowed_region_code').addEventListener('change', updateRegionTitle);
+    refreshIpdata();
+});
+
+function updateSpeedDisplay() {
+    const sel = this;
+    const targetId = sel.dataset.target;
+    const wrap = document.getElementById(targetId + '_wrap');
+    const mode = sel.value;
+    if (!window._speedVals) window._speedVals = {};
+    if (window._speedVals[targetId] === undefined) window._speedVals[targetId] = 100;
+    const val = window._speedVals[targetId];
+    if (mode === 'limit') {
+        wrap.innerHTML = '<input type="number" class="form-control speed-input" data-target="' + targetId + '" value="' + val + '" min="1">';
+        wrap.querySelector('input').addEventListener('input', function() { window._speedVals[targetId] = this.value; });
+    } else if (mode === 'block') {
+        wrap.innerHTML = '<span class="text-danger fw-bold">拒绝访问 -</span>';
+    } else {
+        wrap.innerHTML = '<span class="text-success fw-bold">完全放行 ∞</span>';
+    }
+}
+
+function updateRegionTitle() {
+    const code = document.getElementById('allowed_region_code').value;
+    const name = regionCodes[code] || code;
+    document.getElementById('allowed_region_title').textContent = name + 'IP段';
+}
+
+function getFormData() {
+    function getSpeedVal(id) {
+        const input = document.querySelector('.speed-input[data-target="' + id + '"]');
+        return input ? (parseInt(input.value) || 100) : (window._speedVals[id] || 100);
+    }
+    return {
+        public_ip_a: document.getElementById('public_ip_a').value.trim(),
+        public_ip_b: document.getElementById('public_ip_b').value.trim(),
+        reserved_ports: document.getElementById('reserved_ports').value.trim(),
+        ssh_port: 22,
+        allowed_region_code: document.getElementById('allowed_region_code').value,
+        allowed_region_mode: document.getElementById('allowed_region_mode').value,
+        allowed_region_limit_kbps: getSpeedVal('allowed_kbps'),
+        other_cn_mode: document.getElementById('other_cn_mode').value,
+        other_cn_limit_kbps: getSpeedVal('other_kbps'),
+        foreign_mode: document.getElementById('foreign_mode').value,
+        foreign_limit_kbps: getSpeedVal('foreign_kbps'),
+        burst_packets: parseInt(document.getElementById('burst_packets').value),
+    };
+}
+
+function showResult(success, message, script) {
+    const card = document.getElementById('resultCard');
+    const output = document.getElementById('resultOutput');
+    output.textContent = (success ? '✓ 成功: ' : '✗ 失败: ') + message + (script ? '\n\n--- 生成的脚本 ---\n' + script : '');
+    output.className = success ? 'mb-0 text-success' : 'mb-0 text-danger';
+    card.style.display = 'block';
+    card.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function previewRules() {
+    const data = getFormData();
+    try {
+        const resp = await fetch('/api/preview', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const result = await resp.json();
+        if (result.success) {
+            document.getElementById('resultOutput').textContent = result.script;
+            document.getElementById('resultOutput').className = 'mb-0';
+            document.getElementById('resultCard').style.display = 'block';
+        } else { showResult(false, result.message); }
+    } catch (e) { showResult(false, '请求失败: ' + e.message); }
+}
+
+async function applyRules() {
+    if (!confirm('确定应用规则？将立即覆盖iptables INPUT链。')) return;
+    const data = getFormData();
+    try {
+        const resp = await fetch('/api/apply', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const result = await resp.json();
+        showResult(result.success, result.message, result.script);
+    } catch (e) { showResult(false, '请求失败: ' + e.message); }
+}
+
+async function backupRules() {
+    const name = prompt('备份名称（留空自动命名）', '');
+    if (name === null) return;
+    try {
+        const resp = await fetch('/api/backup', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: name || undefined }) });
+        const result = await resp.json();
+        showResult(result.success, result.message);
+    } catch (e) { showResult(false, '请求失败: ' + e.message); }
+}
+
+async function updateIpdata() {
+    const regionCode = document.getElementById('allowed_region_code').value;
+    const regionName = regionCodes[regionCode] || regionCode;
+    if (!confirm(`将下载全中国 + ${regionName} IP段数据并更新ipset，确定？`)) return;
+    const btn = document.querySelector('button[onclick="updateIpdata()"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>更新中...'; }
+    try {
+        const resp = await fetch('/api/update_ipdata', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ region_code: regionCode }) });
+        const result = await resp.json();
+        showResult(result.success, `${result.message} (全国: ${result.counts.cn||'-'}, ${regionName}: ${result.counts.allowed||'-'})`);
+    } catch (e) { showResult(false, '请求失败: ' + e.message); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>更新IP数据'; } refreshIpdata(); }
+}
+
+function buildIpdataHtml(label, file, set) {
+    let h = '';
+    h += `<div>文件: ${file&&file.exists ? file.count+' 条' : '<span class="text-danger">未下载</span>'}</div>`;
+    h += `<div>更新时间: ${file&&file.mtime ? file.mtime : '-'}</div>`;
+    if (set) h += `<div>ipset: ${set.exists&&set.count>0 ? '<span class="text-success">已装载 ('+set.count+')</span>' : '<span class="text-danger">未装载</span>'}</div>`;
+    return h;
+}
+
+function renderIpdataInfo(ipdata) {
+    const cn = ipdata.cn_file || {exists:false,count:0,mtime:null};
+    const al = ipdata.allowed_file || {exists:false,count:0,mtime:null};
+    const cnS = ipdata.ipsets && ipdata.ipsets['cn_ips'];
+    const alS = ipdata.ipsets && ipdata.ipsets['allowed_ips'];
+    document.getElementById('cn_ipdata_info').innerHTML = buildIpdataHtml('全中国', cn, cnS);
+    document.getElementById('gd_ipdata_info').innerHTML = buildIpdataHtml('放行地域', al, alS);
+}
+
+function renderIpsetState(ipdata) {
+    const c = document.getElementById('ipsetState'); if (!ipdata) return;
+    const al = ipdata.ipsets && ipdata.ipsets['allowed_ips'];
+    const cn = ipdata.ipsets && ipdata.ipsets['cn_ips'];
+    const p = [];
+    if (al) p.push(`放行地域: ${al.exists?al.count:'未装载'}`);
+    if (cn) p.push(`全中国: ${cn.exists?cn.count:'未装载'}`);
+    c.innerHTML = `<div class="form-text mb-1">ipset: ${p.join(' | ')||'未知'}</div>`;
+}
+
+async function refreshIpdata() {
+    try { const r = await fetch('/api/status'); const d = await r.json(); if (d.success) renderIpdataInfo(d.ipdata); }
+    catch (e) { document.getElementById('cn_ipdata_info').innerHTML = `<span class="text-danger">${e.message}</span>`; }
+}
+
+async function refreshStatus() {
+    try {
+        const r = await fetch('/api/status'); const d = await r.json();
+        if (d.success) {
+            document.getElementById('statusOutput').textContent = d.rules;
+            renderIpsetState(d.ipdata);
+            document.getElementById('statusCard').style.display = 'block';
+        }
+    } catch (e) { showResult(false, '请求失败: ' + e.message); }
+}
+
+async function showRestoreModal() {
+    try {
+        const r = await fetch('/api/backups'); const d = await r.json();
+        const tb = document.querySelector('#backupTable tbody'); tb.innerHTML = '';
+        if (!d.backups.length) { tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无备份</td></tr>'; }
+        else d.backups.forEach(b => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><input type="radio" name="backupSelect" value="${b.filename}"></td><td>${b.name}</td><td>${(b.size/1024).toFixed(1)} KB</td><td>${b.time}</td>`;
+            tb.appendChild(tr);
+        });
+        new bootstrap.Modal(document.getElementById('restoreModal')).show();
+    } catch (e) { showResult(false, '获取备份列表失败: '+e.message); }
+}
+
+async function restoreBackup() {
+    const sel = document.querySelector('input[name="backupSelect"]:checked');
+    if (!sel) { alert('请选择备份'); return; }
+    if (!confirm('确定恢复此备份？')) return;
+    try {
+        const r = await fetch('/api/restore', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({filename:sel.value}) });
+        const d = await r.json();
+        showResult(d.success, d.message);
+        bootstrap.Modal.getInstance(document.getElementById('restoreModal')).hide();
+    } catch (e) { showResult(false, '请求失败: '+e.message); }
+}
+</script>
+{% endblock %}

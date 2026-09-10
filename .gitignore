@@ -1,0 +1,16 @@
+# 虚拟环境
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 运行数据与密钥
+data/
+*.db
+*.sqlite3
+
+# 打包产物
+*.tar.gz
+*.zip
