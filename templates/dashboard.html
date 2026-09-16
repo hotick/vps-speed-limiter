@@ -165,6 +165,62 @@
         </div>
     </div>
 
+    <!-- 被拦截IP -->
+    <div class="card mb-3" id="blockedCard">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-shield-exclamation me-2"></i>被拦截IP <small class="text-muted">（限速/拒绝）</small></h5>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadBlocked()"><i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="clearBlocked()"><i class="bi bi-trash me-1"></i>清空</button>
+            </div>
+        </div>
+        <div class="card-body py-3">
+            <div class="row g-2 mb-3 align-items-end">
+                <div class="col-auto" style="min-width:150px">
+                    <input type="text" class="form-control form-control-sm" id="blockedIp" placeholder="IP搜索">
+                </div>
+                <div class="col-auto">
+                    <select class="form-select form-select-sm" id="blockedAction">
+                        <option value="">全部动作</option>
+                        <option value="block">拒绝 (block)</option>
+                        <option value="limit">限速 (limit)</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <select class="form-select form-select-sm" id="blockedRegion">
+                        <option value="">全部区域</option>
+                        <option value="allowed">放行地域</option>
+                        <option value="cn">国内其它</option>
+                        <option value="foreign">境外</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-primary" onclick="loadBlocked()"><i class="bi bi-search me-1"></i>查询</button>
+                </div>
+                <div class="col text-end">
+                    <small class="text-muted" id="blockedStats"></small>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover table-striped mb-0">
+                    <thead class="table-light">
+                        <tr><th width="160">时间</th><th width="140">IP</th><th width="80">动作</th><th width="80">区域</th><th>端口</th></tr>
+                    </thead>
+                    <tbody id="blockedBody">
+                        <tr><td colspan="5" class="text-center text-muted">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 d-flex justify-content-between align-items-center">
+                <small class="text-muted" id="blockedPageInfo"></small>
+                <div>
+                    <button class="btn btn-sm btn-outline-secondary" id="blockedPrev" onclick="blockedPagePrev()" disabled>上一页</button>
+                    <button class="btn btn-sm btn-outline-secondary" id="blockedNext" onclick="blockedPageNext()" disabled>下一页</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 状态 -->
     <div class="card" id="statusCard" style="display:none">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -219,6 +275,9 @@ document.addEventListener('DOMContentLoaded', function() {
     updateRegionTitle();
     document.getElementById('allowed_region_code').addEventListener('change', updateRegionTitle);
     refreshIpdata();
+    blockedOffset = 0;
+    loadBlocked();
+    loadBlockedStats();
 });
 
 function updateSpeedDisplay() {
@@ -389,6 +448,69 @@ async function restoreBackup() {
         showResult(d.success, d.message);
         bootstrap.Modal.getInstance(document.getElementById('restoreModal')).hide();
     } catch (e) { showResult(false, '请求失败: '+e.message); }
+}
+
+let blockedOffset = 0;
+const blockedLimit = 100;
+
+async function loadBlocked() {
+    blockedOffset = 0;
+    await fetchBlocked();
+}
+
+async function fetchBlocked() {
+    const ip = document.getElementById('blockedIp').value.trim();
+    const action = document.getElementById('blockedAction').value;
+    const region = document.getElementById('blockedRegion').value;
+    const params = new URLSearchParams({limit: blockedLimit, offset: blockedOffset});
+    if (ip) params.set('ip', ip);
+    if (action) params.set('action', action);
+    if (region) params.set('region', region);
+    try {
+        const r = await fetch('/api/blocked?' + params);
+        const d = await r.json();
+        if (!d.success) return;
+        const tbody = document.getElementById('blockedBody');
+        if (!d.records.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">无记录</td></tr>';
+        } else {
+            const actionLabel = {block:'<span class="text-danger">拒绝</span>', limit:'<span class="text-warning">限速</span>'};
+            const regionLabel = {allowed:'放行地域', cn:'国内其它', foreign:'境外'};
+            tbody.innerHTML = d.records.map(r =>
+                `<tr><td><small>${r.timestamp}</small></td><td><code>${r.ip}</code></td>` +
+                `<td>${actionLabel[r.action]||r.action}</td>` +
+                `<td>${regionLabel[r.region]||r.region}</td>` +
+                `<td>${r.port||'-'}</td></tr>`
+            ).join('');
+        }
+        document.getElementById('blockedPrev').disabled = blockedOffset <= 0;
+        document.getElementById('blockedNext').disabled = d.records.length < blockedLimit;
+        document.getElementById('blockedPageInfo').textContent = `第 ${blockedOffset+1}-${blockedOffset+d.records.length} 条`;
+    } catch (e) {}
+}
+
+function blockedPagePrev() { if (blockedOffset > 0) { blockedOffset = Math.max(0, blockedOffset - blockedLimit); fetchBlocked(); } }
+function blockedPageNext() { blockedOffset += blockedLimit; fetchBlocked(); }
+
+async function loadBlockedStats() {
+    try {
+        const r = await fetch('/api/blocked/stats');
+        const d = await r.json();
+        if (d.success) {
+            const s = d.stats;
+            document.getElementById('blockedStats').textContent =
+                `总拦截: ${s.total} | 去重IP: ${s.unique_ips} | 今日: ${s.today}`;
+        }
+    } catch (e) {}
+}
+
+async function clearBlocked() {
+    if (!confirm('确定清空所有拦截日志？')) return;
+    try {
+        const r = await fetch('/api/blocked/clear', {method:'POST'});
+        const d = await r.json();
+        if (d.success) { loadBlocked(); loadBlockedStats(); }
+    } catch (e) {}
 }
 </script>
 {% endblock %}

@@ -9,6 +9,7 @@ from models import db, User, Config, Backup
 from utils.iptables import IPTablesManager
 from utils.ipdata import IPDataManager
 from utils.auth import load_user
+from utils import blocked_db
 
 
 def create_app():
@@ -180,6 +181,29 @@ def create_app():
         user.password_hash = generate_password_hash(new_pwd)
         db.session.commit()
         return jsonify({'success': True, 'message': '密码已修改'})
+
+    @app.route('/api/blocked', methods=['GET'])
+    @login_required
+    def api_blocked():
+        ip = request.args.get('ip')
+        action = request.args.get('action')
+        region = request.args.get('region')
+        limit = min(int(request.args.get('limit', 200)), 1000)
+        offset = int(request.args.get('offset', 0))
+        rows = blocked_db.query(ip=ip, action=action, region=region, limit=limit, offset=offset)
+        return jsonify({'success': True, 'records': rows})
+
+    @app.route('/api/blocked/stats', methods=['GET'])
+    @login_required
+    def api_blocked_stats():
+        s = blocked_db.stats()
+        return jsonify({'success': True, 'stats': s})
+
+    @app.route('/api/blocked/clear', methods=['POST'])
+    @login_required
+    def api_blocked_clear():
+        blocked_db.clear()
+        return jsonify({'success': True, 'message': '日志已清空'})
 
     return app
 

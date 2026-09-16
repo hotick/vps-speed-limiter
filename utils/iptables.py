@@ -128,16 +128,21 @@ class IPTablesManager:
 
         # === SPEED_LIMIT 链内规则（每条只匹配一个 set） ===
         rules.append("# --- SPEED_LIMIT 链开始 ---")
+        rules.append("# LOG 前缀: SPL_BLOCK_*=拒绝, SPL_LIMIT_*=限速超限; *_AL=放行地域, *_CN=国内其它, *_FW=境外")
 
         # 放行地域 IP
         mode = config['allowed_region_mode']
         if mode == 'allow':
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src -j ACCEPT")
         elif mode == 'block':
+            rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_BLOCK_AL: \"")
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src -j DROP")
         else:  # limit
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src "
                          f"-m limit --limit {allowed_pps}/second --limit-burst {burst} -j ACCEPT")
+            rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_LIMIT_AL: \"")
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_ALLOWED} src -j DROP")
 
         # 国内 IP（cn_ips 匹配成功说明是国内，且不在 allowed_ips 中因为上面已放行）
@@ -145,10 +150,14 @@ class IPTablesManager:
         if mode == 'allow':
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src -j ACCEPT")
         elif mode == 'block':
+            rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_BLOCK_CN: \"")
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src -j DROP")
         else:  # limit
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src "
                          f"-m limit --limit {other_cn_pps}/second --limit-burst {burst} -j ACCEPT")
+            rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_LIMIT_CN: \"")
             rules.append(f"iptables -A SPEED_LIMIT -m set --match-set {IPSET_CN} src -j DROP")
 
         # 境外 IP（非 cn_ips，走到这里说明既不是放行地域也不是国内）
@@ -156,10 +165,14 @@ class IPTablesManager:
         if mode == 'allow':
             rules.append(f"iptables -A SPEED_LIMIT -j ACCEPT")
         elif mode == 'block':
+            rules.append(f"iptables -A SPEED_LIMIT "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_BLOCK_FW: \"")
             rules.append(f"iptables -A SPEED_LIMIT -j DROP")
         else:  # limit
             rules.append(f"iptables -A SPEED_LIMIT "
                          f"-m limit --limit {foreign_pps}/second --limit-burst {burst} -j ACCEPT")
+            rules.append(f"iptables -A SPEED_LIMIT "
+                         f"-m limit --limit 10/minute --limit-burst 5 -j LOG --log-prefix \"SPL_LIMIT_FW: \"")
             rules.append(f"iptables -A SPEED_LIMIT -j DROP")
 
         rules.append("# --- SPEED_LIMIT 链结束 ---")

@@ -52,6 +52,7 @@ VPS 使用两个公网 IP：
 | 备份恢复 | 自动/手动备份，列表选择恢复 |
 | 状态查看 | 实时查看 iptables 规则与 ipset 装载状态 |
 | 修改密码 | 导航栏「改密」，支持修改管理员密码 |
+| 被拦截IP日志 | 记录被限速/拒绝的IP，支持按IP/动作/区域筛选查询，自动清理60天前记录 |
 
 ---
 
@@ -236,6 +237,7 @@ iptables -L INPUT -n | head
    b. cn_ips 命中（国内非放行地域）→ 完全放行 / 拒绝 / 限速
    c. 兜底（境外）               → 完全放行 / 拒绝 / 限速
    d. 限速模式：超限包 → DROP
+   e. 拒绝/超限前插入 LOG（--log-prefix SPL_*，限速10条/分钟防洪泛）
 8. 其他所有 → DROP
 ```
 
@@ -327,10 +329,12 @@ iptables -A INPUT -j ACCEPT
 
 ```bash
 systemctl stop vps-speed-limiter && systemctl disable vps-speed-limiter
+systemctl stop speed-limiter-log && systemctl disable speed-limiter-log
 iptables -F INPUT; iptables -A INPUT -j ACCEPT
 ipset destroy allowed_ips 2>/dev/null; ipset destroy cn_ips 2>/dev/null
 netfilter-persistent save
-rm -rf /opt/vps-speed-limiter /etc/systemd/system/vps-speed-limiter.service
+rm -rf /opt/vps-speed-limiter /etc/systemd/system/vps-speed-limiter.service /etc/systemd/system/speed-limiter-log.service
+rm -f /etc/rsyslog.d/speed-limiter.conf /etc/logrotate.d/speed-limiter
 systemctl daemon-reload
 ```
 
@@ -339,11 +343,15 @@ systemctl daemon-reload
 ## 九、运维命令
 
 ```bash
-systemctl status vps-speed-limiter    # 状态
-journalctl -u vps-speed-limiter -f    # 日志
+systemctl status vps-speed-limiter    # Web UI 状态
+systemctl status speed-limiter-log    # 日志监听状态
+journalctl -u vps-speed-limiter -f    # Web UI 日志
+journalctl -u speed-limiter-log -f    # 日志监听日志
 iptables -L INPUT -n --line-numbers -v
+iptables -L SPEED_LIMIT -n -v        # SPEED_LIMIT 链（含 LOG 计数）
 ipset -t list allowed_ips             # 放行地域段条目
 ipset -t list cn_ips                  # 全国段条目
+cat /var/log/speed-limiter.log | tail -20  # 查看原始拦截日志
 ```
 
 重置管理员密码（sqlite3 需先 `apt install -y sqlite3`）：
@@ -395,9 +403,11 @@ netfilter-persistent save
 |------|------|
 | Python / Flask | 3.8+ / 3.0.3 |
 | Flask-SQLAlchemy / Flask-Login | 3.1.1 / 0.6.3 |
-| SQLite | 内置 |
-| Gunicorn | 22.0.0（4 worker，端口 9999） |
+| SQLite | 内置（app.db + blocked.db） |
+| Gunicorn | 22.0.0（2 worker，端口 9999） |
 | ipset | 内核功能 + 命令行 |
+| rsyslog | 系统自带（接收 iptables LOG） |
+| logrotate | 系统自带（日志轮转，保留60天） |
 | IP 数据 | 运行时下载（metowolf/iplist） |
 | Bootstrap | 5.3.2 (CDN) |
 

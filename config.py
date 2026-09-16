@@ -60,6 +60,11 @@ class Config:
 
     WEB_MANAGE_PORT = 9999
 
+    # 被拦截IP日志
+    LOG_FILE = '/var/log/speed-limiter.log'
+    BLOCKED_DB = os.path.join(DATA_DIR, 'blocked.db')
+    LOG_RETENTION_DAYS = 60
+
     # ipset 集合名
     IPSET_ALLOWED = 'allowed_ips'   # 配置的放行地域
     IPSET_CN = 'cn_ips'             # 全中国
